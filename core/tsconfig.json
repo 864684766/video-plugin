@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "incremental": false,
+    "declaration": true,
+    "skipLibCheck": true,
+    "removeComments": false,
+    "strict": false,
+    "noImplicitAny": false,
+    "types": ["unplugin-vue-define-options"]
+  },
+  "extends": "../tsconfig.json",
+  "include": ["src/**/*.ts", "src/**/*.vue"]
+}

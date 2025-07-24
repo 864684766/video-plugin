@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "strict": true,
+    "jsx": "preserve",
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "lib": ["ESNext", "DOM"],
+    "baseUrl": ".", // 当前目录，即项目根目录作为基础目录
+    "rootDir": ".",
+    "paths": {
+      "@/*": ["src/*"], // 将 @ 映射到 src 目录
+      "@components/*": ["src/components/*"] // 将 @ 映射到 src 目录
+    }
+  }
+}
