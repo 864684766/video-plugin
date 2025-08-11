@@ -3,33 +3,48 @@
 // import zyWebRtcVideoView from "../../core/src/components/webrtc_video/index.vue";
 import { ref } from "vue";
 import { zyFlvVideoView, zyWebRtcVideoView } from "zy-video-view";
-const flvVidevUrl = ref("http://localhost:7634/live/0501769230.flv");
-const webRtcVideoUrl = ref(
-  "http://localhost:1985/rtc/v1/whep/?app=live&stream=0499961776"
-);
+const flvVidevUrl = ref([
+  "http://XXXXXXXXX/live/0927022847.flv",
+  "http://XXXXXXXXX/live/0695427082.flv",
+]);
+const webRtcVideoUrlList = ref([
+  "http://XXXXXXXXXXXXX/rtc/v1/whep/?app=live&stream=0927022847",
+  "http://XXXXXXXXXXXX/rtc/v1/whep/?app=live&stream=0695427082",
+  // "http://36.138.75.71:1985/rtc/v1/whep/?app=live&stream=0094621816",
+]);
 </script>
 
 <template>
-  <div>
-    我是测试项目，我要测试video-view插件
-    <div style="width: 600px; height: 600px">
+  我是测试项目，我要测试video-view插件
+  <div style="display: flex; flex-wrap: wrap">
+    <div
+      v-for="video_item in flvVidevUrl"
+      style="width: 600px; height: 300px; margin-left: 10px; margin-top: 10px"
+    >
       <zyFlvVideoView
         :cors="true"
-        :videoUrl="flvVidevUrl"
+        :videoUrl="video_item"
         :actionButton="true"
         :videoType="'flv'"
       />
     </div>
+  </div>
 
-    我还想测试一下webRtcVideo组件
-    <div style="width: 600px; height: 600px">
+  <br />
+  我还想测试一下webRtcVideo组件
+  <div style="display: flex; flex-wrap: wrap">
+    <!-- <div
+      v-for="video_item in webRtcVideoUrlList"
+      style="width: 600px; height: 300px; margin-left: 10px; margin-top: 10px"
+    >
       <zyWebRtcVideoView
-        :url="webRtcVideoUrl"
+        :url="video_item"
         :reconnectInterval="5000"
         :controls="true"
+        :stallTimeout="30000"
       />
-    </div>
-    <div style="width: 600px; height: 600px; margin-top: 20px">
+    </div> -->
+    <!-- <div style="width: 600px; height: 600px; margin-top: 20px">
       <zyFlvVideoView
         :cors="true"
         :isLive="false"
@@ -41,7 +56,7 @@ const webRtcVideoUrl = ref(
         :hasAudio="true"
         :videoType="'mp4'"
       />
-    </div>
+    </div> -->
 
     <!-- <zyVideoView
       :isLive="false"

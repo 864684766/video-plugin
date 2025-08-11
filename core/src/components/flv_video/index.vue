@@ -11,20 +11,24 @@ defineOptions({
 // }>();
 
 // 添加 props 的默认值
-const props = withDefaults(defineProps<IFlvVideoProps>(), {
-  actionButton: true,
-  cors: false,
-  hasAudio: false,
-  isLive: true,
-  videoType: "flv",
-  videoUrl: "",
-  videoClass: "",
-  videoRecord: false,
-  autoplay: true,
-  loop: true,
-  max_count: 30,
-  muted: true,
-});
+const props = withDefaults(
+  defineProps<IFlvVideoProps & { objectFit?: string }>(),
+  {
+    actionButton: true,
+    cors: false,
+    hasAudio: false,
+    isLive: true,
+    videoType: "flv",
+    videoUrl: "",
+    videoClass: "",
+    videoRecord: false,
+    autoplay: true,
+    loop: true,
+    max_count: 30,
+    muted: true,
+    objectFit: "fill",
+  }
+);
 
 let MPEGTSPlayer: Mpegts.Player | null = null;
 const startVisible = ref(false);
@@ -48,9 +52,7 @@ const handleMouseLeave = () => {};
 const destroyVideo = () => {
   if (MPEGTSPlayer) {
     // 日志添加
-    console.log(
-      `[zy-video-view] Destroying player instance for URL: ${props.videoUrl}`
-    );
+    console.log(`[zy-video-view] 已销毁播放器实例，流地址：${props.videoUrl}`);
     MPEGTSPlayer.destroy();
     MPEGTSPlayer = null;
   }
@@ -63,36 +65,42 @@ const destroyVideo = () => {
  * */
 const listenerError = (type: string, details: any) => {
   // 日志添加 - 记录所有发生的错误
-  console.error(
-    `[zy-video-view] Player Error Occurred. Type: ${type}, URL: ${props.videoUrl}`,
-    details
-  );
-
+  let errMsg = "";
+  let solution = "";
   switch (type) {
     case Mpegts.ErrorTypes.NETWORK_ERROR:
-      // 网络异常
-      // 日志添加
+      errMsg = `网络错误，无法连接到视频流（${props.videoUrl}）。`;
+      solution =
+        "常见原因：\n1. 视频流服务未启动或地址错误。\n2. 网络不通或被防火墙拦截。\n3. 服务器不支持 FLV 协议。\n排查建议：\n- 检查视频流地址和网络连通性。\n- 联系服务端管理员确认接口可用。";
       console.error(
-        `[zy-video-view] Network error detected. Attempting to reconnect. URL: ${props.videoUrl}`
+        `[zy-video-view] 网络异常，尝试重连。流地址：${props.videoUrl}`
       );
       reconnect();
       break;
     case Mpegts.ErrorTypes.MEDIA_ERROR:
-      // 媒体错误, 通常是视频流本身有问题
-      // 日志添加
+      errMsg = `媒体错误，视频流可能损坏或格式不受支持（${props.videoUrl}）。`;
+      solution =
+        "常见原因：\n1. 视频流本身异常或损坏。\n2. 编码格式不兼容。\n排查建议：\n- 检查推流端是否正常。\n- 尝试更换浏览器或升级 mpegts.js 版本。";
       console.error(
-        `[zy-video-view] Media error detected. The video stream may be corrupted. URL: ${props.videoUrl}`
+        `[zy-video-view] 媒体错误，视频流可能损坏，尝试重连。流地址：${props.videoUrl}`
       );
-      // 也可以尝试重连，因为有时媒体错误是暂时的
       reconnect();
       break;
     case Mpegts.ErrorTypes.OTHER_ERROR:
-      // 其他错误
-      // 日志添加
-      console.error(
-        `[zy-video-view] An other error occurred. URL: ${props.videoUrl}`
-      );
+      errMsg = `未知错误，流地址：${props.videoUrl}`;
+      solution =
+        "常见原因：\n1. 服务器异常。\n2. 浏览器兼容性问题。\n排查建议：\n- 检查服务端日志。\n- 尝试更换浏览器。";
+      console.error(`[zy-video-view] 发生其他错误。流地址：${props.videoUrl}`);
       break;
+    default:
+      errMsg = `未知错误类型：${type}，流地址：${props.videoUrl}`;
+      solution = "请联系开发者进一步排查。";
+      break;
+  }
+  // 控制台输出详细错误
+  if (errMsg) {
+    console.error(`[zy-video-view] 播放失败：${errMsg}\n详细信息：`, details);
+    throw new Error(`播放失败：${errMsg}\n${solution}`);
   }
 };
 
@@ -101,7 +109,7 @@ const listenerError = (type: string, details: any) => {
  * */
 const listenerLoading = () => {
   // 日志添加
-  console.log(`[zy-video-view] Loading complete for URL: ${props.videoUrl}`);
+  console.log(`[zy-video-view] 视频加载完成，流地址：${props.videoUrl}`);
 };
 
 /**
@@ -109,18 +117,14 @@ const listenerLoading = () => {
  */
 const reconnect = () => {
   // 日志添加
-  console.warn(
-    `[zy-video-view] Executing reconnect for URL: ${props.videoUrl}`
-  );
+  console.warn(`[zy-video-view] 执行重连，流地址：${props.videoUrl}`);
   destroyVideo(); // 销毁当前播放器
   option.lastDecodeFrame = 0; // 重置解码帧数
   if (videoRef.value) {
     createPlayer(videoRef.value); // 重新创建播放器
   } else {
     // 日志添加
-    console.error(
-      `[zy-video-view] Reconnect failed: videoRef is not available.`
-    );
+    console.error(`[zy-video-view] 重连失败：videoRef 不可用。`);
   }
 };
 
@@ -148,7 +152,7 @@ const statisticsHandle = (e: { decodedFrames: number }) => {
     if (option.count === 1) {
       // 只在第一次检测到时打印，避免刷屏
       console.warn(
-        `[zy-video-view] Stream may be stalled for URL: ${props.videoUrl}. Decoded frames have not updated.`
+        `[zy-video-view] 检测到视频流卡顿，解码帧未更新，流地址：${props.videoUrl}`
       );
     }
 
@@ -156,7 +160,7 @@ const statisticsHandle = (e: { decodedFrames: number }) => {
     if (option.count > props.max_count) {
       // 日志添加 - 错误信息，表明即将强制重连
       console.error(
-        `[zy-video-view] Max stall count (${props.max_count}) reached. Forcing reconnect for URL: ${props.videoUrl}.`
+        `[zy-video-view] 达到最大卡顿重试次数(${props.max_count})，强制重连，流地址：${props.videoUrl}`
       );
       reconnect(); // 尝试重连
       option.count = 0; // 重置计数器
@@ -165,9 +169,7 @@ const statisticsHandle = (e: { decodedFrames: number }) => {
     // 如果解码帧数不同，说明视频流正常，重置计数器
     if (option.count > 0) {
       // 日志添加 - 恢复信息
-      console.log(
-        `[zy-video-view] Stream recovered for URL: ${props.videoUrl}.`
-      );
+      console.log(`[zy-video-view] 视频流恢复正常，流地址：${props.videoUrl}`);
     }
     option.lastDecodeFrame = e.decodedFrames; // 更新解码帧数
     option.count = 0; // 重置计数器
@@ -181,9 +183,7 @@ const statisticsHandle = (e: { decodedFrames: number }) => {
 const loadPlay = (video: typeof MPEGTSPlayer) => {
   if (video) {
     // 日志添加
-    console.log(
-      `[zy-video-view] Loading and playing video for URL: ${props.videoUrl}`
-    );
+    console.log(`[zy-video-view] 加载并播放视频，流地址：${props.videoUrl}`);
     // 加载视频
     video.load();
     if (props.autoplay) {
@@ -212,7 +212,7 @@ const createPlayer = (videoElement: HTMLVideoElement) => {
     url: props.videoUrl,
   };
   // 日志添加
-  console.log(`[zy-video-view] Creating mpegts.js player with config:`, {
+  console.log(`[zy-video-view] 创建 mpegts.js 播放器，配置如下:`, {
     mediaDataSource,
   });
 
@@ -240,7 +240,7 @@ const createPlayer = (videoElement: HTMLVideoElement) => {
  */
 const initPlayer = () => {
   // 日志添加
-  console.log(`[zy-video-view] Initializing player for URL: ${props.videoUrl}`);
+  console.log(`[zy-video-view] 初始化播放器，流地址：${props.videoUrl}`);
   destroyVideo();
   nextTick(() => {
     if (props.videoUrl && videoRef.value) {
@@ -248,7 +248,7 @@ const initPlayer = () => {
     } else {
       // 日志添加
       console.warn(
-        `[zy-video-view] Canceled player initialization. Reason: videoUrl is empty or videoRef is not ready.`
+        `[zy-video-view] 取消播放器初始化，原因：videoUrl 为空或 videoRef 未就绪。`
       );
     }
   });
@@ -289,15 +289,13 @@ watch(
   () => {
     if (!props.videoUrl) {
       // 日志添加
-      console.warn(
-        `[zy-video-view] videoUrl prop changed to an empty value. Destroying player.`
-      );
+      console.warn(`[zy-video-view] videoUrl 属性变为空，销毁播放器。`);
       destroyVideo();
       return;
     }
     // 日志添加
     console.log(
-      `[zy-video-view] videoUrl prop changed. New URL: ${props.videoUrl}. Re-initializing player.`
+      `[zy-video-view] videoUrl 属性变更，新地址：${props.videoUrl}，重新初始化播放器。`
     );
     initPlayer();
   },
@@ -314,7 +312,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   // 日志添加
-  console.log(`[zy-video-view] Component unmounted. Cleaning up resources.`);
+  console.log(`[zy-video-view] 组件卸载，清理资源。`);
   destroyVideo(); // 确保组件卸载时销毁播放器
   if (intervalId.value) {
     clearInterval(intervalId.value);
@@ -325,7 +323,7 @@ onUnmounted(() => {
 <template>
   <div class="zy-video-view">
     <video
-      style="object-fit: fill"
+      :style="`object-fit: ${props.objectFit}`"
       :autoplay="props.autoplay"
       :loop="props.loop"
       :controls="props.actionButton"
@@ -359,6 +357,5 @@ onUnmounted(() => {
 .video-element {
   width: 100%;
   height: 100%;
-  object-fit: contain;
 }
 </style>

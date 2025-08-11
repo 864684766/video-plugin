@@ -1,7 +1,7 @@
 {
   "name": "zy-video-view",
   "private": false,
-  "version": "1.1.6",
+  "version": "1.1.7",
   "type": "module",
   "description": "A Vue 3 component library for video playback.",
   "keywords": [

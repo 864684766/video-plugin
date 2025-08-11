@@ -9,7 +9,7 @@
 
 ## `zy-video-view` (支持 FLV/MP4)
 
-一个基于 **`mpegts.js`** 的多功能视频播放器。它主要用于 **HTTP-FLV** 格式的直播，同时也**兼容播放标准的 MP4 文件**。组件内置了针对直播的断流重连机制。
+一个基于 **`mpegts.js`** 的多功能视频播放器。它主要用于 **HTTP-FLV** 格式的直播，同时也**兼容播放标准的 MP4 文件**。组件内置了针对直播的断流重连机制，并支持详细日志输出、彻底资源释放、object-fit 拉伸、录制面板等特性。多实例场景下每路互不干扰，便于高并发和问题排查。
 
 _在你的使用示例中，它被命名为 `zyFlvVideoView`。_
 
@@ -17,13 +17,12 @@ _在你的使用示例中，它被命名为 `zyFlvVideoView`。_
 
 #### 1. 播放 FLV 直播流 (常用)
 
-这是组件的核心用途。通过设置 `videoUrl` 和 `videoType: 'flv'` 来播放 FLV 直播。
+这是组件的核心用途。通过设置 `videoUrl` 和 `videoType: 'flv'` 来播放 FLV 直播。组件会自动输出详细的控制台日志，便于排查流状态、重连、卡顿、资源释放等问题。
 
 ```vue
 <script setup lang="ts">
 import { ref } from "vue";
-import { zyFlvVideoView } from "zy-video-view"; // 假设已从你的库中导入
-
+import { zyFlvVideoView } from "zy-video-view";
 const flvUrl = ref("http://your-server.com/live/stream.flv");
 </script>
 
@@ -34,11 +33,19 @@ const flvUrl = ref("http://your-server.com/live/stream.flv");
       :videoType="'flv'"
       :actionButton="true"
       :cors="true"
-      is-live
+      :isLive="true"
+      :objectFit="'cover'"
+      :videoRecord="true"
     />
   </div>
 </template>
 ```
+
+> - `videoUrl`: 直播流地址。
+> - `videoType: 'flv'`: 明确告知 `mpegts.js` 按 FLV 格式解码。
+> - `actionButton: true`: 显示浏览器原生的控制条。
+> - `isLive: true`: **必须设置**，用于启用直播缓冲策略和断流重连。
+> - `cors: true`: 如果视频源需要跨域访问，请设置为 true。
 
 > **关键属性解读**：
 >
@@ -47,10 +54,13 @@ const flvUrl = ref("http://your-server.com/live/stream.flv");
 > - `actionButton: true`: 显示浏览器原生的控制条。
 > - `isLive: true`: **必须设置**，用于启用直播缓冲策略和断流重连。
 > - `cors: true`: 如果视频源需要跨域访问，请设置为 true。
+> - `objectFit`: 控制 `<video>` 拉伸/铺满（如 'cover', 'contain', 'fill' 等）。
+> - `videoRecord`: 显示录制面板（仅 UI，非实际录制）。
+> - 控制台会自动输出详细日志，便于排查每一路流的状态、重连、卡顿、资源释放等。
 
 #### 2. 播放 MP4 点播视频
 
-该组件也可用于播放普通的 MP4 文件。只需将 `isLive` 设置为 `false`，并相应地调整 `videoType`。
+该组件也可用于播放普通的 MP4 文件。只需将 `isLive` 设置为 `false`，并相应地调整 `videoType`。所有资源会在组件卸载或 videoUrl 变更时彻底释放。
 
 ```vue
 <script setup lang="ts">
@@ -85,36 +95,41 @@ const mp4Url = ref("https://media.w3.org/2010/05/sintel/trailer.mp4");
 
 ### Attributes (Props)
 
-| Attribute      | Description                                                                                                             | Type      | Default |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------- | --------- | ------- |
-| `videoUrl`     | **[常用]** 视频流的 URL 地址。                                                                                          | `string`  | `''`    |
-| `videoType`    | **[常用]** 视频流的类型，例如 `'flv'`, `'mp4'`, `'ts'`。`mpegts.js` 依赖此项选择解码器。                                | `string`  | `'flv'` |
-| `isLive`       | **[常用]** 是否为直播流。`true` 启用直播模式和重连，`false` 启用点播模式。                                              | `boolean` | `true`  |
-| `actionButton` | **[常用]** 是否显示浏览器原生控制条（播放/暂停、音量、全屏等）。**它等同于 `<video>` 的 `controls` 属性**。             | `boolean` | `true`  |
-| `autoplay`     | **[常用]** 是否自动播放。                                                                                               | `boolean` | `true`  |
-| `muted`        | **[常用]** 是否静音播放。在某些浏览器中，`autoplay` 必须配合 `muted` 才能生效。                                         | `boolean` | `true`  |
-| `loop`         | 是否循环播放。**注意：在直播模式下 (`isLive: true`)，此属性还控制是否启用断流重连检测**。                               | `boolean` | `true`  |
-| `hasAudio`     | 指示视频流是否包含音频。                                                                                                | `boolean` | `false` |
-| `cors`         | 是否启用 CORS（跨域）凭证。                                                                                             | `boolean` | `false` |
-| `max_count`    | 断流检测阈值。当连续 `max_count` 次检测到视频解码帧数未增加时，触发重连（仅在 `isLive` 和 `loop` 都为 `true` 时有效）。 | `number`  | `30`    |
-| `videoRecord`  | 是否显示一个模拟的录制状态 UI。**这只是一个界面，不执行任何实际的录制操作**。                                           | `boolean` | `false` |
-| `videoClass`   | 应用于内部 `<video>` 元素的自定义 CSS 类名。                                                                            | `string`  | `''`    |
+| Attribute      | Description                                                                                               | Type      | Default  |
+| -------------- | --------------------------------------------------------------------------------------------------------- | --------- | -------- |
+| `videoUrl`     | **[常用]** 视频流的 URL 地址。                                                                            | `string`  | `''`     |
+| `videoType`    | **[常用]** 视频流的类型，例如 `'flv'`, `'mp4'`, `'ts'`。`mpegts.js` 依赖此项选择解码器。                  | `string`  | `'flv'`  |
+| `isLive`       | **[常用]** 是否为直播流。`true` 启用直播模式和重连，`false` 启用点播模式。                                | `boolean` | `true`   |
+| `actionButton` | **[常用]** 是否显示浏览器原生控制条（播放/暂停、音量、全屏等）。**等同于 `<video>` 的 `controls` 属性**。 | `boolean` | `true`   |
+| `autoplay`     | **[常用]** 是否自动播放。                                                                                 | `boolean` | `true`   |
+| `muted`        | **[常用]** 是否静音播放。在某些浏览器中，`autoplay` 必须配合 `muted` 才能生效。                           | `boolean` | `true`   |
+| `loop`         | 是否循环播放。**注意：在直播模式下 (`isLive: true`)，此属性还控制是否启用断流重连检测**。                 | `boolean` | `true`   |
+| `hasAudio`     | 指示视频流是否包含音频。                                                                                  | `boolean` | `false`  |
+| `cors`         | 是否启用 CORS（跨域）凭证。                                                                               | `boolean` | `false`  |
+| `max_count`    | 断流检测阈值。连续 `max_count` 次解码帧未增加即重连（仅 `isLive` 和 `loop` 都为 `true` 时有效）。         | `number`  | `30`     |
+| `videoRecord`  | 是否显示录制面板（仅 UI，非实际录制）。                                                                   | `boolean` | `false`  |
+| `videoClass`   | 应用于内部 `<video>` 元素的自定义 CSS 类名。                                                              | `string`  | `''`     |
+| `objectFit`    | `<video>` 的 object-fit 拉伸模式（如 'cover', 'contain', 'fill' 等）。                                    | `string`  | `'fill'` |
 
 ### Exposed Methods
 
-此组件不向外暴露任何方法。所有控制均通过 `props` 的变化来触发。
+此组件不向外暴露任何方法。所有控制均通过 `props` 的变化来触发。组件会自动彻底释放资源（包括 mpegts.js 实例、video、定时器等），无需手动清理。
 
 ### 注意事项
 
 1. **核心依赖**：此组件强依赖 `mpegts.js`。
 2. **`isLive` 是关键**：务必根据视频源是直播还是点播文件来正确设置 `isLive` 属性，它会影响底层库的缓冲和播放行为。
 3. **重连机制**：断流重连仅在 `isLive: true` 和 `loop: true` 时生效。
+4. **详细日志**：组件会自动输出每一路流的创建、播放、卡顿、重连、销毁等详细日志，便于排查问题。
+5. **彻底释放**：组件卸载或 videoUrl 变更时会彻底释放所有资源，避免内存泄漏和多实例冲突。
+6. **object-fit**：支持自定义 `<video>` 拉伸模式，适配不同 UI 场景。
+7. **录制面板**：`videoRecord` 仅为 UI 展示，不涉及实际录制。
 
 ---
 
 ## `zy-webrtc-player` (支持 WebRTC)
 
-一个基于 **WebRTC** 技术的低延迟视频播放器，专门用于播放 **WHEP** 协议的视频流，非常适合实时性要求高的场景。
+一个基于 **WebRTC** 技术的低延迟视频播放器，专门用于播放 **WHEP** 协议的视频流，非常适合实时性要求高的场景。支持多实例隔离、详细日志输出、彻底资源释放、自动重连、卡顿检测等。
 
 _在你的使用示例中，它被命名为 `zyWebRtcVideoView`。_
 
@@ -122,7 +137,7 @@ _在你的使用示例中，它被命名为 `zyWebRtcVideoView`。_
 
 #### 播放 WebRTC (WHEP) 直播流
 
-通过 `url` 属性指定 WHEP 服务地址。使用 `controls` 属性可以快速开启原生控制条。
+通过 `url` 属性指定 WHEP 服务地址。使用 `controls` 属性可以快速开启原生控制条。组件会自动输出详细日志，便于排查每一路的连接、重连、释放等状态。
 
 ```vue
 <script setup lang="ts">
@@ -166,7 +181,7 @@ const webrtcUrl = ref(
 
 ### Exposed Methods
 
-通过 `ref` 获取到组件实例后，可以调用以下方法进行手动控制。
+通过 `ref` 获取到组件实例后，可以调用以下方法进行手动控制。所有资源（PeerConnection、MediaStream、video 等）会在 stopPlay 或组件卸载时彻底释放，控制台会输出详细日志。
 
 | Method Name | Description                                                    | Parameters |
 | ----------- | -------------------------------------------------------------- | ---------- |
@@ -199,3 +214,6 @@ const handleStop = () => {
 1.  **协议特定**：此组件仅支持 **WHEP** 协议。
 2.  **自动播放**：为保证 `autoplay` 生效，建议始终配合 `muted: true` 使用。
 3.  **全屏功能**：将 `controls` 属性设置为 `true` 是实现全屏功能最简单直接的方式。浏览器自带的控制条中包含了全屏按钮。
+4.  **详细日志**：组件会自动输出每一路的连接、重连、释放等详细日志，便于排查多路并发和资源释放。
+5.  **彻底释放**：组件卸载或 stopPlay 时会彻底释放所有资源，避免内存泄漏和历史连接残留。
+6.  **多实例隔离**：支持多路并发播放，互不干扰。

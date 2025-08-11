@@ -2,53 +2,64 @@
 import { ref, onMounted, onUnmounted, watch } from "vue";
 import { IWebRtcPlayerProps } from "./type";
 
-// --- 组件定义 ---
-defineOptions({
-  name: "zy-webrtc-player",
-});
+defineOptions({ name: "zy-webrtc-player" });
 
-const props = withDefaults(defineProps<IWebRtcPlayerProps>(), {
-  autoplay: true,
-  muted: true,
-  controls: false,
-  enableReconnect: true,
-  maxReconnectAttempts: 5,
-  reconnectInterval: 2000,
-  stallTimeout: 5000,
-});
+const props = withDefaults(
+  defineProps<IWebRtcPlayerProps & { objectFit?: string }>(),
+  {
+    autoplay: true,
+    muted: true,
+    controls: false,
+    enableReconnect: true,
+    maxReconnectAttempts: 5,
+    reconnectInterval: 2000,
+    stallTimeout: 5000,
+    objectFit: "fill",
+  }
+);
 
 const LOG_PREFIX = "[zy-webrtc-player]";
 
-// --- DOM 引用 ---
 const videoRef = ref<HTMLVideoElement | null>(null);
-
-// --- 状态与资源管理 ---
 const statusText = ref("等待初始化...");
 const isShowingStatus = ref(true);
 const peerConnection = ref<RTCPeerConnection | null>(null);
 const whepSessionUrl = ref<string | null>(null);
-
 const hasStopped = ref(false);
-
-// --- 重连与卡顿检测状态 ---
 const reconnectTimer = ref<NodeJS.Timeout | null>(null);
-const reconnectAttempts = ref(0);
 const stallDetectorTimer = ref<NodeJS.Timeout | null>(null);
+const reconnectAttempts = ref(0);
 let lastVideoTime = -1;
 
-/**
- * @description 彻底清理资源，在开始播放前或组件卸载时调用
- * // <<< 变化点：移除了所有 statusText 的设置，让函数职责更单一 >>>
- */
-const cleanup = async () => {
-  console.log(`${LOG_PREFIX} Cleaning up resources...`);
+// 日志辅助函数
+function logInfo(msg: string, ...args: any[]) {
+  console.log(`[zy-webrtc-player][${props.url}]`, msg, ...args);
+}
+function logWarn(msg: string, ...args: any[]) {
+  console.warn(`[zy-webrtc-player][${props.url}]`, msg, ...args);
+}
+function logError(msg: string, ...args: any[]) {
+  console.error(`[zy-webrtc-player][${props.url}]`, msg, ...args);
+}
 
+// 彻底释放 video 的流
+function releaseVideoStream() {
+  if (videoRef.value && videoRef.value.srcObject) {
+    const ms = videoRef.value.srcObject as MediaStream;
+    ms.getTracks().forEach((track) => track.stop());
+    videoRef.value.srcObject = null;
+  }
+}
+
+const cleanup = async () => {
+  logInfo("执行 cleanup，释放资源");
   if (reconnectTimer.value) clearTimeout(reconnectTimer.value);
   if (stallDetectorTimer.value) clearTimeout(stallDetectorTimer.value);
   reconnectTimer.value = null;
   stallDetectorTimer.value = null;
 
   if (peerConnection.value) {
+    logInfo("关闭 PeerConnection");
     peerConnection.value.onconnectionstatechange = null;
     peerConnection.value.ontrack = null;
     peerConnection.value.onicegatheringstatechange = null;
@@ -59,44 +70,30 @@ const cleanup = async () => {
   if (whepSessionUrl.value) {
     try {
       await fetch(whepSessionUrl.value, { method: "DELETE" });
-      console.log(`${LOG_PREFIX} WHEP session terminated successfully.`);
+      logInfo("删除 WHEP 会话", whepSessionUrl.value);
     } catch (e) {
-      console.warn(
-        `${LOG_PREFIX} Failed to terminate WHEP session, it might have already expired.`,
-        e
-      );
+      logWarn("删除 WHEP 会话失败", e);
     }
     whepSessionUrl.value = null;
   }
 
-  if (videoRef.value) {
-    videoRef.value.srcObject = null;
-  }
-
-  // lastVideoTime 应该在这里重置，因为它与播放会话紧密相关
+  releaseVideoStream();
   lastVideoTime = -1;
 };
 
-/**
- * @description 视频卡顿/断流检测器
- */
 const startStallDetector = () => {
   if (!videoRef.value || !props.enableReconnect || hasStopped.value) return;
-
   if (stallDetectorTimer.value) clearTimeout(stallDetectorTimer.value);
 
   stallDetectorTimer.value = setTimeout(() => {
     if (!videoRef.value || hasStopped.value) return;
-
     const currentTime = videoRef.value.currentTime;
     if (
       lastVideoTime !== -1 &&
       lastVideoTime === currentTime &&
       !videoRef.value.paused
     ) {
-      console.warn(
-        `${LOG_PREFIX} Stream stalled (video time not updating). Triggering reconnect.`
-      );
+      logWarn("检测到视频卡顿，currentTime 未变化，触发重连");
       statusText.value = "视频流卡顿，正在重连...";
       isShowingStatus.value = true;
       handleReconnect();
@@ -107,87 +104,66 @@ const startStallDetector = () => {
   }, props.stallTimeout);
 };
 
-/**
- * @description 处理重连逻辑
- */
 const handleReconnect = () => {
-  if (hasStopped.value) {
-    return;
-  }
-
+  if (hasStopped.value) return;
   isShowingStatus.value = true;
-
   if (reconnectAttempts.value >= props.maxReconnectAttempts) {
-    console.error(
-      `${LOG_PREFIX} Max reconnect attempts reached. Stopping permanently.`
-    );
-    statusText.value = "连接失败，请检查网络后刷新重试。";
+    logError("重连次数已达上限，停止重连");
+    statusText.value =
+      "连接失败，请检查网络连接、视频流地址是否正确，或联系管理员后刷新重试。";
     hasStopped.value = true;
     if (reconnectTimer.value) clearTimeout(reconnectTimer.value);
     if (stallDetectorTimer.value) clearTimeout(stallDetectorTimer.value);
     return;
   }
-
   reconnectAttempts.value++;
   const delay =
     props.reconnectInterval * Math.pow(2, reconnectAttempts.value - 1);
-
-  // <<< 变化点：现在这个状态文本可以正确地显示了 >>>
-  statusText.value = `连接中断，${delay / 1000}s 后尝试第 ${
+  logWarn(
+    `连接中断，第${reconnectAttempts.value}次重连，${delay / 1000}s 后重试`
+  );
+  statusText.value = `连接中断，${delay / 1000}秒后尝试第${
     reconnectAttempts.value
-  } 次重连...`;
-
+  }次重连...`;
   cleanup().then(() => {
     if (hasStopped.value) return;
-    // <<< 变化点：调用 _executePlay 而不是 startPlay，以避免重置计数器 >>>
     reconnectTimer.value = setTimeout(_executePlay, delay);
   });
 };
 
-/**
- * @description 内部函数：执行一次播放尝试（不重置状态）
- * // <<< 变化点：这是从原 startPlay 拆分出来的核心逻辑 >>>
- */
 const _executePlay = async () => {
   if (!props.url) {
     statusText.value = "错误：未提供视频流地址";
     isShowingStatus.value = true;
-    return;
+    throw new Error("未提供视频流地址，请检查组件的 url 属性是否正确传递。");
   }
-
-  // 清理上一次的连接，但不重置状态
   await cleanup();
-
-  // 仅在首次尝试时显示“正在初始化”，重连时由 handleReconnect 控制状态文本
-  if (reconnectAttempts.value === 0) {
-    statusText.value = "正在初始化...";
-  }
+  if (reconnectAttempts.value === 0) statusText.value = "正在初始化...";
   isShowingStatus.value = true;
 
   try {
+    logInfo("创建 PeerConnection");
     const pc = new RTCPeerConnection();
     peerConnection.value = pc;
 
     const iceGatheringPromise = new Promise<void>((resolve) => {
       pc.onicegatheringstatechange = () => {
-        if (pc.iceGatheringState === "complete") {
-          resolve();
-        }
+        logInfo("ICE gathering state:", pc.iceGatheringState);
+        if (pc.iceGatheringState === "complete") resolve();
       };
     });
 
     pc.ontrack = (event) => {
+      logInfo("收到 track", event.track.kind, event.track.id);
       if (videoRef.value) {
         if (!videoRef.value.srcObject) {
           videoRef.value.srcObject = new MediaStream();
         }
         (videoRef.value.srcObject as MediaStream).addTrack(event.track);
-
         videoRef.value.onplaying = () => {
-          console.log(`${LOG_PREFIX} Video is playing.`);
+          logInfo("video onplaying，流已开始播放");
           statusText.value = "正在播放";
           isShowingStatus.value = false;
-          // <<< 变化点：播放成功后，才重置重连次数 >>>
           reconnectAttempts.value = 0;
           startStallDetector();
         };
@@ -195,9 +171,9 @@ const _executePlay = async () => {
     };
 
     pc.onconnectionstatechange = () => {
+      logInfo("PeerConnection 状态变更:", pc.connectionState);
       if (!pc || hasStopped.value) return;
-
-      statusText.value = `连接状态: ${pc.connectionState}`;
+      // 连接状态日志
       switch (pc.connectionState) {
         case "connected":
           statusText.value = "已连接，等待媒体数据...";
@@ -205,22 +181,25 @@ const _executePlay = async () => {
         case "disconnected":
         case "failed":
         case "closed":
-          // 断开连接时，如果允许重连，则触发
-          if (props.enableReconnect) {
-            handleReconnect();
-          }
+          statusText.value = `连接已断开（${pc.connectionState}），正在尝试重连...`;
+          if (props.enableReconnect) handleReconnect();
           break;
+        default:
+          statusText.value = `连接状态：${pc.connectionState}`;
       }
     };
 
+    logInfo("添加 transceiver: video/recvonly, audio/recvonly");
     pc.addTransceiver("video", { direction: "recvonly" });
     pc.addTransceiver("audio", { direction: "recvonly" });
 
+    logInfo("创建 offer");
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await iceGatheringPromise;
     statusText.value = "正在协商媒体流...";
 
+    logInfo("发送 WHEP 请求", props.url);
     const response = await fetch(props.url, {
       method: "POST",
       headers: { "Content-Type": "application/sdp" },
@@ -228,47 +207,44 @@ const _executePlay = async () => {
     });
 
     if (!response.ok || response.status !== 201) {
-      throw new Error(`WHEP 请求失败，状态码: ${response.status}`);
+      logError(`WHEP 请求失败，状态码: ${response.status}`);
+      throw new Error(
+        `WHEP 请求失败，状态码: ${response.status}。\n可能原因：\n1. 视频流服务未启动或地址错误。\n2. 网络不通或被防火墙拦截。\n3. 服务器不支持 WHEP 协议。\n解决方案：\n- 检查视频流地址和网络连通性。\n- 联系服务端管理员确认接口可用。`
+      );
     }
 
     const answerSdp = await response.text();
     const location = response.headers.get("Location");
     if (!location) {
-      throw new Error("WHEP 响应中未找到 Location 头。");
+      logError("WHEP 响应中未找到 Location 头");
+      throw new Error(
+        "WHEP 响应中未找到 Location 头。\n可能原因：\n1. 服务端未正确实现 WHEP 协议。\n2. 服务器返回异常。\n解决方案：\n- 联系服务端管理员排查接口实现。"
+      );
     }
     whepSessionUrl.value = new URL(location, props.url).href;
 
+    logInfo("设置远端 SDP");
     await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
   } catch (error) {
     if (hasStopped.value) return;
-    console.error(`${LOG_PREFIX} 播放失败:`, error);
-    statusText.value = `播放失败: ${
-      error instanceof Error ? error.message : String(error)
-    }`;
-    // 如果允许重连，则触发
-    if (props.enableReconnect) {
-      handleReconnect();
-    } else {
-      isShowingStatus.value = true;
-    }
+    let errMsg = error instanceof Error ? error.message : String(error);
+    statusText.value = `播放失败：${errMsg}`;
+    logError("播放失败", error);
+    if (props.enableReconnect) handleReconnect();
+    else isShowingStatus.value = true;
+    throw new Error(`播放失败：${errMsg}`);
   }
 };
 
-/**
- * @description 核心功能：开始一次全新的播放。
- * // <<< 变化点：这是新的公共入口函数，负责重置状态 >>>
- */
 const startPlay = async () => {
-  console.log(`${LOG_PREFIX} Starting a new playback session.`);
   hasStopped.value = false;
-  reconnectAttempts.value = 0; // 只在这里重置重连次数
+  reconnectAttempts.value = 0;
   await _executePlay();
 };
 
 const stopPlay = () => {
   hasStopped.value = true;
   cleanup().then(() => {
-    // <<< 变化点：在这里设置最终的停止状态 >>>
     statusText.value = "已停止";
     isShowingStatus.value = true;
   });
@@ -277,26 +253,19 @@ const stopPlay = () => {
 watch(
   () => props.url,
   (newUrl, oldUrl) => {
-    if (newUrl && newUrl !== oldUrl) {
-      startPlay();
-    }
+    if (newUrl && newUrl !== oldUrl) startPlay();
   }
 );
 
 onMounted(() => {
-  if (props.autoplay) {
-    startPlay();
-  }
+  if (props.autoplay) startPlay();
 });
 
 onUnmounted(() => {
-  stopPlay(); // 使用 stopPlay 来确保状态一致性
+  stopPlay();
 });
 
-defineExpose({
-  startPlay,
-  stopPlay,
-});
+defineExpose({ startPlay, stopPlay });
 </script>
 
 <template>
@@ -309,6 +278,7 @@ defineExpose({
       :controls="props.controls"
       playsinline
       class="video-element"
+      :style="`object-fit: ${props.objectFit}`"
     ></video>
     <div class="status-overlay" v-if="isShowingStatus">
       <span class="status-text">{{ statusText }}</span>
@@ -332,7 +302,6 @@ defineExpose({
 .video-element {
   width: 100%;
   height: 100%;
-  object-fit: contain;
 }
 .status-overlay {
   position: absolute;
