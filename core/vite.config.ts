@@ -10,7 +10,7 @@ import dts from "vite-plugin-dts"; //生成dts文件用到
 // https://vite.dev/config/
 export default defineConfig({
   build: {
-    sourcemap: false,
+    sourcemap: true,
     target: "esnext",
     outDir: "dist",
     lib: {

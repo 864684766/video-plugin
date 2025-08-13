@@ -36,6 +36,11 @@ const count = ref(0);
 const intervalId = ref<NodeJS.Timeout | null>(null);
 const videoRef = ref<HTMLVideoElement | null>(null);
 
+// 记录事件处理函数，便于销毁时安全解绑
+let handleErrorFn: ((type: any, details: any) => void) | null = null;
+let handleLoadingFn: (() => void) | null = null;
+let handleStatsFn: ((e: { decodedFrames: number }) => void) | null = null;
+
 const option = {
   lastDecodeFrame: 0, // 上一次解码帧
   count: 0, // 重连次数
@@ -53,6 +58,26 @@ const destroyVideo = () => {
   if (MPEGTSPlayer) {
     // 日志添加
     console.log(`[zy-video-view] 已销毁播放器实例，流地址：${props.videoUrl}`);
+    // 优先解绑事件，避免销毁过程中回调触发导致异常
+    try {
+      if (handleErrorFn) {
+        MPEGTSPlayer.off(Mpegts.Events.ERROR, handleErrorFn as any);
+      }
+      if (handleLoadingFn) {
+        MPEGTSPlayer.off(
+          Mpegts.Events.LOADING_COMPLETE,
+          handleLoadingFn as any
+        );
+      }
+      if (handleStatsFn) {
+        MPEGTSPlayer.off(Mpegts.Events.STATISTICS_INFO, handleStatsFn as any);
+      }
+    } catch (e) {
+      console.warn("[zy-video-view] 解绑事件时出现问题：", e);
+    }
+    handleErrorFn = null;
+    handleLoadingFn = null;
+    handleStatsFn = null;
     MPEGTSPlayer.destroy();
     MPEGTSPlayer = null;
   }
@@ -100,7 +125,8 @@ const listenerError = (type: string, details: any) => {
   // 控制台输出详细错误
   if (errMsg) {
     console.error(`[zy-video-view] 播放失败：${errMsg}\n详细信息：`, details);
-    throw new Error(`播放失败：${errMsg}\n${solution}`);
+    // 不要在回调中抛出异常，避免打断内部事件流；仅记录并按策略处理
+    // 可选择在外层上报错误
   }
 };
 
@@ -185,17 +211,22 @@ const loadPlay = (video: typeof MPEGTSPlayer) => {
     // 日志添加
     console.log(`[zy-video-view] 加载并播放视频，流地址：${props.videoUrl}`);
     // 加载视频
-    video.load();
-    if (props.autoplay) {
-      // 播放视频
-      video.play();
+    try {
+      video.load();
+      if (props.autoplay) {
+        // 播放视频
+        video.play();
+      }
+    } catch (e) {
+      console.error("[zy-video-view] 调用 load/play 失败：", e);
     }
     // 添加媒体监听 1.监听视频错误 2.监听视频加载 3.监听统计信息
-    video.on(Mpegts.Events.ERROR, (type, details) =>
-      listenerError(type, details)
-    ); // 传递所有参数
-    video.on(Mpegts.Events.LOADING_COMPLETE, listenerLoading);
-    video.on(Mpegts.Events.STATISTICS_INFO, statisticsHandle);
+    handleErrorFn = (type, details) => listenerError(type, details);
+    handleLoadingFn = () => listenerLoading();
+    handleStatsFn = (e) => statisticsHandle(e);
+    video.on(Mpegts.Events.ERROR, handleErrorFn as any);
+    video.on(Mpegts.Events.LOADING_COMPLETE, handleLoadingFn as any);
+    video.on(Mpegts.Events.STATISTICS_INFO, handleStatsFn as any);
   }
 };
 
@@ -204,6 +235,13 @@ const loadPlay = (video: typeof MPEGTSPlayer) => {
  * @param videoElement 播放器媒体标签
  * */
 const createPlayer = (videoElement: HTMLVideoElement) => {
+  if (
+    !Mpegts ||
+    (typeof Mpegts.isSupported === "function" && !Mpegts.isSupported())
+  ) {
+    console.error("[zy-video-view] 当前环境不支持 MSE/mpegts 播放。");
+    return;
+  }
   const mediaDataSource = {
     cors: props.cors,
     hasAudio: props.hasAudio,
